@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TR Altyazı</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #0e0e10;
+  --surface:   #16161a;
+  --surface2:  #1e1e24;
+  --border:    #2a2a32;
+  --border2:   #3a3a44;
+  --text:      #e8e8f0;
+  --muted:     #6b6b80;
+  --accent:    #7c6dfa;
+  --accent2:   #a594ff;
+  --success:   #3dd68c;
+  --warn:      #f5a524;
+  --danger:    #f56565;
+  --mono:      'JetBrains Mono', monospace;
+  --sans:      'DM Sans', sans-serif;
+  --r:         8px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.logo {
+  width: 28px; height: 28px;
+  background: var(--accent);
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; color: #fff;
+  letter-spacing: -0.5px;
+}
+.header-title { font-weight: 600; font-size: 14px; }
+.header-sub   { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--muted); flex-shrink: 0;
+  transition: background 0.3s;
+}
+.status-dot.ok   { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.status-dot.err  { background: var(--danger); }
+.status-dot.busy { background: var(--warn); animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+.tabs {
+  display: flex; border-bottom: 1px solid var(--border);
+  flex-shrink: 0; padding: 0 16px;
+}
+.tab {
+  padding: 9px 14px; font-size: 12px; font-weight: 500;
+  color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+  white-space: nowrap;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
+
+.panel-body {
+  flex: 1; overflow-y: auto; padding: 16px;
+}
+.panel-body::-webkit-scrollbar { width: 4px; }
+.panel-body::-webkit-scrollbar-track { background: transparent; }
+.panel-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.pane { display: none; }
+.pane.active { display: block; }
+
+.label {
+  font-size: 11px; font-weight: 500; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  margin-bottom: 6px; display: block;
+}
+.input, .select, .textarea {
+  width: 100%; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--r);
+  color: var(--text); font-family: var(--sans); font-size: 13px;
+  padding: 8px 10px; outline: none;
+  transition: border-color 0.15s;
+}
+.input:focus, .select:focus, .textarea:focus { border-color: var(--accent); }
+.select option { background: var(--surface2); }
+.textarea { resize: vertical; min-height: 80px; font-family: var(--mono); font-size: 12px; }
+
+.row { display: flex; gap: 8px; align-items: flex-end; }
+.row .input { flex: 1; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: var(--r); border: none;
+  font-family: var(--sans); font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: opacity 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--accent);  color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--accent2); }
+.btn-surface { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.btn-surface:hover:not(:disabled) { border-color: var(--border2); }
+.btn-danger  { background: #3a1818; color: var(--danger); border: 1px solid #5a2020; }
+
+.field { margin-bottom: 14px; }
+.field:last-child { margin-bottom: 0; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 14px;
+  margin-bottom: 12px;
+}
+.card:last-child { margin-bottom: 0; }
+.card-title {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+}
+
+.progress-wrap {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 4px; overflow: hidden; height: 4px;
+  margin: 10px 0;
+}
+.progress-bar {
+  height: 100%; background: var(--accent);
+  transition: width 0.3s; width: 0%;
+}
+
+.log-box {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 10px;
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  max-height: 100px; overflow-y: auto; line-height: 1.8;
+}
+
+.transcript-list { display: flex; flex-direction: column; gap: 4px; }
+.seg-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 8px 10px; border-radius: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  cursor: pointer; transition: border-color 0.15s;
+}
+.seg-item:hover  { border-color: var(--border2); }
+.seg-item.active { border-color: var(--accent); background: #1a1730; }
+.seg-time {
+  font-family: var(--mono); font-size: 10px; color: var(--accent2);
+  white-space: nowrap; min-width: 80px; padding-top: 1px;
+}
+.seg-text { font-size: 13px; color: var(--text); flex: 1; }
+.seg-text[contenteditable="true"] { outline: none; }
+.seg-text[contenteditable="true"]:focus {
+  background: #12102a; border-radius: 3px; padding: 1px 4px;
+}
+.seg-del {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-size: 16px; padding: 0 2px; line-height: 1;
+  transition: color 0.15s;
+}
+.seg-del:hover { color: var(--danger); }
+
+.silence-list { display: flex; flex-direction: column; gap: 4px; }
+.silence-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 10px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; font-family: var(--mono); font-size: 11px;
+}
+.silence-dur  { color: var(--warn); }
+.silence-time { color: var(--muted); }
+
+.range-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.range-row label { font-size: 12px; color: var(--muted); width: 100px; flex-shrink: 0; }
+.range-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+.range-val { font-family: var(--mono); font-size: 12px; color: var(--accent2); width: 36px; text-align: right; }
+
+.switch-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.switch-row label { font-size: 13px; color: var(--text); flex: 1; }
+.switch { position: relative; width: 36px; height: 20px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch-track {
+  position: absolute; inset: 0; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 20px; cursor: pointer;
+  transition: background 0.2s;
+}
+.switch-track::after {
+  content: ''; position: absolute; left: 2px; top: 2px;
+  width: 14px; height: 14px; background: var(--muted);
+  border-radius: 50%; transition: transform 0.2s, background 0.2s;
+}
+.switch input:checked + .switch-track { background: #2a2048; border-color: var(--accent); }
+.switch input:checked + .switch-track::after { transform: translateX(16px); background: var(--accent2); }
+
+.toast {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%) translateY(60px);
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--r); padding: 10px 18px;
+  font-size: 13px; color: var(--text);
+  transition: transform 0.25s; z-index: 999;
+  white-space: nowrap;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.ok   { border-color: var(--success); color: var(--success); }
+.toast.err  { border-color: var(--danger);  color: var(--danger);  }
+
+.action-bar {
+  padding: 10px 16px; border-top: 1px solid var(--border);
+  display: flex; gap: 8px; flex-shrink: 0;
+}
+.action-bar .btn { flex: 1; justify-content: center; }
+
+.empty {
+  text-align: center; padding: 40px 20px;
+  color: var(--muted); font-size: 13px;
+}
+.empty-icon { font-size: 36px; margin-bottom: 10px; opacity: 0.3; }
+
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 20px;
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.badge-accent  { background: #2a2048; color: var(--accent2); }
+.badge-warn    { background: #2e200f; color: var(--warn); }
+
+.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">TR</div>
+  <span class="header-title">Altyazı &amp; Transcript</span>
+  <div class="status-dot" id="serverDot" title="Whisper server durumu"></div>
+  <span class="header-sub" id="seqName">Sequence yok</span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('transcript')">Transcript</div>
+  <div class="tab" onclick="switchTab('autocut')">Auto-Cut</div>
+  <div class="tab" onclick="switchTab('settings')">Ayarlar</div>
+</div>
+
+<div class="panel-body">
+
+  <!-- TRANSCRIPT -->
+  <div class="pane active" id="pane-transcript">
+
+    <div class="card">
+      <div class="card-title">
+        <span>Transkript Al</span>
+        <span class="badge badge-accent" id="modelBadge">large-v3</span>
+      </div>
+
+      <div class="field">
+        <span class="label">Kaynak</span>
+        <select class="select" id="srcSelect">
+          <option value="sequence">Aktif Sequence</option>
+          <option value="file">Harici Dosya</option>
+        </select>
+      </div>
+
+      <div class="field" id="fileField" style="display:none">
+        <span class="label">Ses / Video Dosyası</span>
+        <div class="row">
+          <input class="input" id="filePath" placeholder="Dosya seç..." readonly>
+          <button class="btn btn-surface" onclick="pickFile()" style="flex-shrink:0">Seç</button>
+        </div>
+      </div>
+
+      <div class="progress-wrap" id="progressWrap" style="display:none">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div class="log-box" id="logBox" style="display:none"></div>
+    </div>
+
+    <div id="transcriptEmpty" class="empty">
+      <div class="empty-icon">🎙</div>
+      <div>"Transkript Al" butonuna bas</div>
+    </div>
+
+    <div class="transcript-list" id="transcriptList" style="display:none"></div>
+
+    <div id="transcriptTools" style="display:none; margin-top:14px">
+      <div style="margin-bottom:8px">
+        <button class="btn btn-primary" onclick="addToTimeline()" style="width:100%; justify-content:center">Timeline'a At</button>
+      </div>
+      <div class="row" style="gap:8px">
+        <button class="btn btn-surface" onclick="editAll()" style="flex:1">Düzenle</button>
+        <button class="btn btn-surface" onclick="exportSRT()" style="flex:1">SRT İndir</button>
+        <button class="btn btn-danger"  onclick="clearTranscript()" style="flex-shrink:0">✕</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUTO-CUT -->
+  <div class="pane" id="pane-autocut">
+
+    <div class="card">
+      <div class="card-title">Kesim Kriterleri</div>
+
+      <div class="range-row">
+        <label>Cutoff (dBFS)</label>
+        <input type="range" min="-60" max="-10" step="1" value="-50" id="rngCutoff"
+               oninput="document.getElementById('valCutoff').textContent=this.value+'dB'; debouncedAnalyze();">
+        <span class="range-val" id="valCutoff">-50dB</span>
+      </div>
+      <div class="range-row">
+        <label>Min. sessizlik</label>
+        <input type="range" min="0.1" max="2.0" step="0.05" value="0.5" id="rngMinSilence"
+               oninput="document.getElementById('valMinSilence').textContent=this.value+'s'; debouncedAnalyze();">
+        <span class="range-val" id="valMinSilence">0.5s</span>
+      </div>
+      <div class="range-row">
+        <label>Min. segment</label>
+        <input type="range" min="0.05" max="2.0" step="0.05" value="0.5" id="rngMinSegment"
+               oninput="document.getElementById('valMinSegment').textContent=this.value+'s'; debouncedAnalyze();">
+        <span class="range-val" id="valMinSegment">0.5s</span>
+      </div>
+      <div class="range-row">
+        <label>Padding</label>
+        <input type="range" min="0" max="0.5" step="0.01" value="0.2" id="rngPadding"
+               oninput="document.getElementById('valPadding').textContent=this.value+'s'; debouncedAnalyze();">
+        <span class="range-val" id="valPadding">0.2s</span>
+      </div>
+
+      <div class="divider" style="margin:12px 0 8px"></div>
+
+      <div class="switch-row">
+        <label>Kesimden önce yedek al</label>
+        <label class="switch"><input type="checkbox" id="swBackup" checked><span class="switch-track"></span></label>
+      </div>
+      <div class="switch-row" style="margin-bottom:0">
+        <label>Önizleme modu (silme yapma)</label>
+        <label class="switch"><input type="checkbox" id="swPreview"><span class="switch-track"></span></label>
+      </div>
+    </div>
+
+    <div id="silenceEmpty" class="empty">
+      <div class="empty-icon">✂</div>
+      <div>Analiz butonuna bas</div>
+    </div>
+
+    <div id="silenceResults" style="display:none">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">
+        <span class="label" style="margin:0">Bulunan Sessizlikler</span>
+        <span class="badge badge-warn" id="silenceCount">0 adet</span>
+      </div>
+      <div class="silence-list" id="silenceList"></div>
+      <button class="btn btn-danger" onclick="applyAutocut()" style="width:100%; justify-content:center; margin-top:10px">Kesimleri Uygula</button>
+    </div>
+  </div>
+
+  <!-- AYARLAR -->
+  <div class="pane" id="pane-settings">
+
+    <div class="card">
+      <div class="card-title">Whisper Server</div>
+      <div class="field">
+        <span class="label">Sunucu Adresi</span>
+        <input class="input" id="serverUrl" value="http://127.0.0.1:5123">
+      </div>
+      <div class="row" style="margin-bottom:10px">
+        <button class="btn btn-surface" onclick="checkServer()" style="flex:1; justify-content:center">Bağlantıyı Test Et</button>
+      </div>
+      <div id="serverStatus" style="font-size:12px; color:var(--muted)">—</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Model</div>
+      <div class="field">
+        <select class="select" id="modelSelect">
+          <option value="tiny">tiny — Hızlı, düşük kalite</option>
+          <option value="base">base</option>
+          <option value="small">small</option>
+          <option value="medium">medium</option>
+          <option value="large-v2">large-v2</option>
+          <option value="large-v3" selected>large-v3 — En iyi Türkçe (Önerilen)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Transkript</div>
+      <div class="switch-row">
+        <label>VAD filtresi (sessizlikleri atla)</label>
+        <label class="switch"><input type="checkbox" id="swVAD" checked><span class="switch-track"></span></label>
+      </div>
+      <div class="switch-row">
+        <label>Büyük harf</label>
+        <label class="switch"><input type="checkbox" id="swUpper"><span class="switch-track"></span></label>
+      </div>
+      <div class="divider" style="margin:8px 0"></div>
+      <div class="range-row" style="margin-bottom:0">
+        <label>Maks. karakter / satır</label>
+        <input type="range" min="20" max="80" step="1" value="42" id="maxLineChars"
+               oninput="document.getElementById('valMaxChars').textContent=this.value"
+               style="flex:1; accent-color:var(--accent)">
+        <span class="range-val" id="valMaxChars">42</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="action-bar">
+  <button class="btn btn-surface" id="btnAnalyze" onclick="analyzeSilence()" style="display:none">Sessizlikleri Analiz Et</button>
+  <button class="btn btn-primary" id="btnMain"    onclick="startTranscript()">Transkript Al</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="CSInterface.js"></script>
+<script>
+
+var csInterface = null;
+try {
+  csInterface = new CSInterface();
+} catch(e) {
+  csInterface = {
+    evalScript: function(script, cb) {
+      if (cb) cb('{"error":"CEP ortamı yok — test modu"}');
+    }
+  };
+}
+
+var state = {
+  segments:     [],
+  silenceRanges:[],
+  appliedCuts:  [],
+  mediaPath:    '',
+  serverUrl:    'http://127.0.0.1:5123',
+  busy:         false
+};
+
+function evalScript(script) {
+  return new Promise(function(resolve, reject) {
+    csInterface.evalScript(script, function(result) {
+      try { resolve(JSON.parse(result)); }
+      catch(e) { reject(new Error('ExtendScript hatası: ' + result)); }
+    });
+  });
+}
+
+// ─── Tabs ─────────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  var tabs  = ['transcript', 'autocut', 'settings'];
+  document.querySelectorAll('.tab').forEach(function(t, i) {
+    t.classList.toggle('active', tabs[i] === name);
+  });
+  document.querySelectorAll('.pane').forEach(function(p) {
+    p.classList.toggle('active', p.id === 'pane-' + name);
+  });
+
+  var isAutocut = (name === 'autocut');
+  document.getElementById('btnMain').style.display    = isAutocut ? 'none' : '';
+  document.getElementById('btnAnalyze').style.display = isAutocut ? '' : 'none';
+}
+
+document.getElementById('srcSelect').addEventListener('change', function() {
+  document.getElementById('fileField').style.display = this.value === 'file' ? 'block' : 'none';
+});
+
+// ─── Transkript al ────────────────────────────────────────────────────────────
+async function startTranscript() {
+  if (state.busy) return;
+
+  var src       = document.getElementById('srcSelect').value;
+  var serverUrl = document.getElementById('serverUrl').value;
+  var useVAD    = document.getElementById('swVAD').checked;
+  state.serverUrl = serverUrl;
+
+  setBusy(true);
+  setDot('busy');
+  showLog(true);
+  showProgress(true, 5);
+
+  try {
+    log('Sequence bilgisi alınıyor...');
+    var seqInfo = await evalScript('getSequenceInfo()');
+    if (seqInfo.error) throw new Error(seqInfo.error);
+    document.getElementById('seqName').textContent = seqInfo.name;
+    log('Sequence: ' + seqInfo.name + ' (' + Math.round(seqInfo.duration) + 's)');
+    showProgress(true, 20);
+
+    var mediaPath;
+    var usedExport = false;
+
+    if (src === 'file') {
+      mediaPath = document.getElementById('filePath').value;
+      if (!mediaPath) throw new Error('Dosya seçilmedi.');
+      log('Dosya: ' + mediaPath.split('\\').pop());
+    } else {
+      log('Timeline audio export ediliyor...');
+      var exportResult = await evalScript('exportTimelineAudio()');
+
+      if (exportResult.success) {
+        mediaPath  = exportResult.path;
+        usedExport = true;
+        log('Export tamam: ' + mediaPath.split('\\').pop());
+      } else {
+        log('Export başarısız (' + (exportResult.error || '?') + '), kaynak dosya kullanılıyor...');
+        var clipInfo = await evalScript('getFirstClipPath()');
+        if (clipInfo.error) throw new Error(clipInfo.error);
+        mediaPath = clipInfo.path;
+        log('Kaynak: ' + clipInfo.name + ' (dikkat: kesimler yansımayabilir)');
+      }
+    }
+    showProgress(true, 50);
+
+    var model        = document.getElementById('modelSelect').value;
+    var maxLineChars = parseInt(document.getElementById('maxLineChars').value) || 42;
+
+    log('Whisper\'a gönderiliyor (' + model + ')...');
+    log('Büyük dosyalar birkaç dakika sürebilir.');
+    showProgress(true, 60);
+
+    var controller = new AbortController();
+    var timeoutId  = setTimeout(function() { controller.abort(); }, 600000);
+
+    var response = await fetch(serverUrl + '/transcribe/path', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ path: mediaPath, word_timestamps: true, vad_filter: useVAD, max_line_chars: maxLineChars }),
+      signal:  controller.signal
+    });
+    clearTimeout(timeoutId);
+    showProgress(true, 85);
+
+    if (!response.ok) {
+      var errData = await response.json().catch(function() { return {}; });
+      throw new Error(errData.error || 'Sunucu hatası: ' + response.status);
+    }
+
+    var data = await response.json();
+    log('Tamamlandı! ' + data.segments.length + ' segment, ' + Math.round(data.duration) + 's');
+
+    state.segments  = data.segments;
+    state.mediaPath = mediaPath;
+    if (usedExport) state.appliedCuts = []; // export zaten kesik, remap gerekmez
+
+    renderTranscript(data.segments);
+    showProgress(false);
+    showLog(false);
+    setDot('ok');
+    setBusy(false);
+    toast('Transkript hazır — ' + data.segments.length + ' segment', 'ok');
+
+  } catch(e) {
+    log('HATA: ' + e.message);
+    showProgress(false);
+    setDot('err');
+    setBusy(false);
+    toast(e.message, 'err');
+  }
+}
+
+// ─── Transcript render ────────────────────────────────────────────────────────
+function renderTranscript(segments) {
+  var list  = document.getElementById('transcriptList');
+  var empty = document.getElementById('transcriptEmpty');
+  var tools = document.getElementById('transcriptTools');
+
+  list.innerHTML = '';
+  empty.style.display = 'none';
+  list.style.display  = 'flex';
+  tools.style.display = 'block';
+
+  segments.forEach(function(seg, i) {
+    var item = document.createElement('div');
+    item.className = 'seg-item';
+    item.innerHTML =
+      '<span class="seg-time">' + fmtTime(seg.start) + ' → ' + fmtTime(seg.end) + '</span>' +
+      '<span class="seg-text" contenteditable="false">' + esc(seg.text) + '</span>' +
+      '<button class="seg-del" onclick="deleteSeg(' + i + ')" title="Sil">×</button>';
+    list.appendChild(item);
+  });
+}
+
+function deleteSeg(i) {
+  state.segments.splice(i, 1);
+  renderTranscript(state.segments);
+}
+
+function editAll() {
+  document.querySelectorAll('.seg-text').forEach(function(el) {
+    el.contentEditable = 'true';
+  });
+  toast('Metinler düzenlenebilir', 'ok');
+}
+
+function clearTranscript() {
+  state.segments = [];
+  document.getElementById('transcriptList').style.display  = 'none';
+  document.getElementById('transcriptTools').style.display = 'none';
+  document.getElementById('transcriptEmpty').style.display = 'block';
+}
+
+// ─── SRT dışa aktar ───────────────────────────────────────────────────────────
+function exportSRT() {
+  if (!state.segments.length) { toast('Önce transkript al', 'err'); return; }
+
+  var captionsJson = JSON.stringify(getCurrentSegments());
+  csInterface.evalScript('exportSRT(' + JSON.stringify(captionsJson) + ')', function(result) {
+    try {
+      var r = JSON.parse(result);
+      if (r.success) toast('SRT kaydedildi: ' + r.path, 'ok');
+      else toast(r.error || 'SRT hatası', 'err');
+    } catch(e) { toast('SRT hatası', 'err'); }
+  });
+}
+
+// ─── Timestamp remapping (auto-cut sonrası fallback durumu için) ──────────────
+function remapTime(t, cuts) {
+  var offset = 0;
+  for (var i = 0; i < cuts.length; i++) {
+    var c = cuts[i];
+    if (c.end <= t)      { offset += (c.end - c.start); }
+    else if (c.start < t){ offset += (t - c.start); break; }
+  }
+  return Math.max(0, t - offset);
+}
+
+function remapSegments(segments, cuts) {
+  var sorted = cuts.slice().sort(function(a, b) { return a.start - b.start; });
+  return segments.map(function(seg) {
+    return { start: remapTime(seg.start, sorted), end: remapTime(seg.end, sorted), text: seg.text };
+  });
+}
+
+// Paneldeki düzenlenmiş metinleri topla
+function getCurrentSegments() {
+  document.querySelectorAll('.seg-item').forEach(function(item, i) {
+    var textEl = item.querySelector('.seg-text');
+    if (textEl && state.segments[i]) state.segments[i].text = textEl.textContent.trim();
+  });
+  return state.segments;
+}
+
+// ─── Timeline'a ekle ──────────────────────────────────────────────────────────
+async function addToTimeline() {
+  if (!state.segments.length) { toast('Önce transkript al', 'err'); return; }
+  if (state.busy) return;
+
+  var segs = getCurrentSegments();
+
+  // appliedCuts doluysa kaynak dosya kullanılmıştır — timestamp'leri düzelt
+  if (state.appliedCuts && state.appliedCuts.length) {
+    segs = remapSegments(segs, state.appliedCuts);
+  }
+
+  var uppercase = document.getElementById('swUpper').checked;
+  if (uppercase) {
+    segs = segs.map(function(s) { return { start: s.start, end: s.end, text: s.text.toUpperCase() }; });
+  }
+
+  setBusy(true);
+  toast('Timeline\'a ekleniyor...', '');
+
+  try {
+    var result = await evalScript(
+      'addCaptionsToTimeline(' + JSON.stringify(JSON.stringify(segs)) + ')'
+    );
+    if (result.success) {
+      var msg = result.added + ' altyazı eklendi';
+      if (result.note) msg = result.note;
+      toast(msg, 'ok');
+    } else {
+      toast(result.error || 'Ekleme hatası', 'err');
+    }
+  } catch(e) {
+    toast(e.message, 'err');
+  }
+
+  setBusy(false);
+}
+
+// ─── Auto-Cut ─────────────────────────────────────────────────────────────────
+async function analyzeSilence() {
+  if (!state.mediaPath) {
+    try {
+      var clipInfo = await evalScript('getFirstClipPath()');
+      if (clipInfo.error) { toast(clipInfo.error, 'err'); return; }
+      state.mediaPath = clipInfo.path;
+    } catch(e) {
+      toast('Medya yolu alınamadı: ' + e.message, 'err');
+      return;
+    }
+  }
+
+  var params = {
+    path:            state.mediaPath,
+    silence_thresh:  parseFloat(document.getElementById('rngCutoff').value),
+    min_silence_len: Math.round(parseFloat(document.getElementById('rngMinSilence').value) * 1000),
+    min_segment_len: Math.round(parseFloat(document.getElementById('rngMinSegment').value) * 1000),
+    padding:         Math.round(parseFloat(document.getElementById('rngPadding').value) * 1000)
+  };
+
+  setDot('busy');
+
+  try {
+    var controller = new AbortController();
+    var tid = setTimeout(function() { controller.abort(); }, 30000);
+    var res = await fetch(state.serverUrl + '/detect-silence', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(params),
+      signal:  controller.signal
+    });
+    clearTimeout(tid);
+
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Analiz hatası');
+
+    state.silenceRanges = data.silence_ranges;
+    renderSilence(data.silence_ranges);
+    setDot('ok');
+  } catch(e) {
+    toast(e.message, 'err');
+    setDot('err');
+  }
+}
+
+function renderSilence(ranges) {
+  var empty   = document.getElementById('silenceEmpty');
+  var results = document.getElementById('silenceResults');
+  var list    = document.getElementById('silenceList');
+
+  if (!ranges.length) {
+    empty.querySelector('div:last-child').textContent = 'Sessizlik bulunamadı';
+    empty.style.display   = 'block';
+    results.style.display = 'none';
+    return;
+  }
+
+  empty.style.display   = 'none';
+  results.style.display = 'block';
+  document.getElementById('silenceCount').textContent = ranges.length + ' adet';
+
+  list.innerHTML = '';
+  ranges.forEach(function(r) {
+    var item = document.createElement('div');
+    item.className = 'silence-item';
+    item.innerHTML =
+      '<span class="silence-time">' + fmtTime(r.start) + ' → ' + fmtTime(r.end) + '</span>' +
+      '<span class="silence-dur">' + r.duration.toFixed(2) + 's</span>';
+    list.appendChild(item);
+  });
+}
+
+async function applyAutocut() {
+  if (!state.silenceRanges.length) { toast('Önce analiz et', 'err'); return; }
+  if (document.getElementById('swPreview').checked) { toast('Önizleme modu — kesim yapılmadı', 'ok'); return; }
+  if (state.busy) return;
+
+  setBusy(true);
+
+  if (document.getElementById('swBackup').checked) {
+    toast('Sequence yedeği alınıyor...', '');
+    try {
+      var bk = await evalScript('backupSequence()');
+      if (bk.success) toast('Yedek alındı: ' + bk.name, 'ok');
+      else toast(bk.hint || bk.error, 'err');
+    } catch(e) {
+      toast('Yedek alınamadı: ' + e.message, 'err');
+      setBusy(false);
+      return;
+    }
+    await new Promise(function(r) { setTimeout(r, 800); });
+  }
+
+  toast('Kesimler uygulanıyor...', '');
+
+  try {
+    var result = await evalScript(
+      'applySilenceCuts(' + JSON.stringify(JSON.stringify(state.silenceRanges)) + ')'
+    );
+    if (result.success) {
+      state.appliedCuts = state.silenceRanges.slice();
+      toast(result.cutsApplied + ' sessizlik silindi', 'ok');
+    } else {
+      toast(result.error || 'Kesim hatası', 'err');
+    }
+  } catch(e) {
+    toast(e.message, 'err');
+  }
+
+  setBusy(false);
+}
+
+var analyzeTimer;
+function debouncedAnalyze() {
+  if (!state.mediaPath) return;
+  clearTimeout(analyzeTimer);
+  analyzeTimer = setTimeout(analyzeSilence, 300);
+}
+
+// ─── Sunucu kontrolü ──────────────────────────────────────────────────────────
+async function checkServer() {
+  var url = document.getElementById('serverUrl').value;
+  state.serverUrl = url;
+  var statusEl = document.getElementById('serverStatus');
+  statusEl.textContent = 'Test ediliyor...';
+  statusEl.style.color = 'var(--muted)';
+
+  try {
+    var controller = new AbortController();
+    var timeoutId  = setTimeout(function() { controller.abort(); }, 3000);
+    var res  = await fetch(url + '/health', { signal: controller.signal });
+    clearTimeout(timeoutId);
+    var data = await res.json();
+    statusEl.textContent = 'Bağlı — Model: ' + data.model + ' | Device: ' + data.device;
+    statusEl.style.color = 'var(--success)';
+    document.getElementById('modelBadge').textContent = data.model;
+    setDot('ok');
+    toast('Sunucu bağlantısı başarılı', 'ok');
+  } catch(e) {
+    statusEl.textContent = 'Bağlanamadı — ' + e.message;
+    statusEl.style.color = 'var(--danger)';
+    setDot('err');
+    toast('Sunucu çalışmıyor', 'err');
+  }
+}
+
+// ─── Dosya seçimi ─────────────────────────────────────────────────────────────
+function pickFile() {
+  try {
+    var f = File.openDialog('Ses veya video seç', '*.mp4;*.mp3;*.wav;*.aac;*.mov', false);
+    if (f) document.getElementById('filePath').value = f.fsName;
+  } catch(e) { toast('Dosya seçimi sadece CEP içinde çalışır', 'err'); }
+}
+
+// ─── Yardımcılar ──────────────────────────────────────────────────────────────
+function fmtTime(s) {
+  var m   = Math.floor(s / 60);
+  var sec = (s % 60).toFixed(1);
+  return m + ':' + (sec < 10 ? '0' : '') + sec;
+}
+function fmtSRT(s) {
+  var h  = Math.floor(s / 3600);
+  var m  = Math.floor((s % 3600) / 60);
+  var sc = Math.floor(s % 60);
+  var ms = Math.round((s % 1) * 1000);
+  return pad(h)+':'+pad(m)+':'+pad(sc)+','+pad(ms,3);
+}
+function pad(n, len) {
+  var s = String(n);
+  while (s.length < (len||2)) s = '0' + s;
+  return s;
+}
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function log(msg) {
+  var box = document.getElementById('logBox');
+  box.innerHTML += '› ' + msg + '\n';
+  box.scrollTop  = box.scrollHeight;
+}
+function showLog(v)  { document.getElementById('logBox').style.display = v ? 'block' : 'none'; }
+function showProgress(v, pct) {
+  document.getElementById('progressWrap').style.display = v ? 'block' : 'none';
+  if (pct !== undefined) document.getElementById('progressBar').style.width = pct + '%';
+}
+function setDot(s) {
+  document.getElementById('serverDot').className = 'status-dot ' + s;
+}
+function setBusy(v) {
+  state.busy = v;
+  document.getElementById('btnMain').disabled    = v;
+  document.getElementById('btnAnalyze').disabled = v;
+}
+
+var toastTimer;
+function toast(msg, type) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className   = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function() { el.className = 'toast'; }, 3000);
+}
+
+window.addEventListener('load', function() {
+  csInterface.evalScript('getSequenceInfo()', function(result) {
+    try {
+      var info = JSON.parse(result);
+      if (!info.error) document.getElementById('seqName').textContent = info.name;
+    } catch(e) {}
+  });
+  checkServer().catch(function() {});
+});
+</script>
+</body>
+</html>

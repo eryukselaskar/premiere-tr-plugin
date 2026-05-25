@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.talyaweb.trsubtitle" ExtensionBundleVersion="1.0.0" ExtensionBundleName="TR Altyazı">
+  <ExtensionList>
+    <Extension Id="com.talyaweb.trsubtitle.panel" Version="1.0.0"/>
+  </ExtensionList>
+  <ExecutionEnvironment>
+    <HostList>
+      <Host Name="PPRO" Version="[13.0,99.9]"/>
+    </HostList>
+    <LocaleList>
+      <Locale Code="All"/>
+    </LocaleList>
+    <RequiredRuntimeList>
+      <RequiredRuntime Name="CSXS" Version="12.0"/>
+    </RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList>
+    <Extension Id="com.talyaweb.trsubtitle.panel">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./HTML/index.html</MainPath>
+          <ScriptPath>./jsx/hostscript.jsx</ScriptPath>
+          <CEFCommandLine>
+            <Parameter>--allow-file-access-from-files</Parameter>
+            <Parameter>--allow-running-insecure-content</Parameter>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--disable-web-security</Parameter>
+            <Parameter>--allow-cross-origin-auth-prompt</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>TR Altyazı &amp; Transcript</Menu>
+          <Geometry>
+            <Size>
+              <Height>700</Height>
+              <Width>420</Width>
+            </Size>
+            <MinSize>
+              <Height>500</Height>
+              <Width>360</Width>
+            </MinSize>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+  </DispatchInfoList>
+</ExtensionManifest>
