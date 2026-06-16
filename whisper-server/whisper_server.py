@@ -96,6 +96,7 @@ def transcribe():
     audio_file = request.files["audio"]
     word_timestamps = request.form.get("word_timestamps", "true").lower() == "true"
     response_format = request.form.get("response_format", "json")
+    vad_filter = request.form.get("vad_filter", "true").lower() == "true"
 
     # Geçici dosyaya kaydet
     suffix = Path(audio_file.filename).suffix or ".wav"
@@ -111,7 +112,7 @@ def transcribe():
             language="tr",              # Türkçe zorla
             beam_size=BEAM_SIZE,
             word_timestamps=word_timestamps,
-            vad_filter=True,            # Sessizlikleri otomatik atla (auto-cut için önemli)
+            vad_filter=vad_filter,      # Sessizlikleri otomatik atla (auto-cut için önemli)
             vad_parameters=dict(
                 min_silence_duration_ms=300,   # 300ms sessizlik = yeni segment
                 threshold=0.4
@@ -173,6 +174,7 @@ def transcribe():
 def transcribe_path():
     """
     Disk üzerindeki dosya yoluyla çalışır (büyük dosyalar için)
+    ve transkripti gerçek zamanlı (stream) olarak ndjson formatında döner.
     
     Body: JSON { "path": "/tmp/audio.wav", "word_timestamps": true }
     """
@@ -199,40 +201,56 @@ def transcribe_path():
             vad_parameters=dict(min_silence_duration_ms=300, threshold=0.4)
         )
 
-        result_segments, all_words = [], []
+        def generate():
+            # İlk başta genel sekans bilgisini gönder
+            yield json.dumps({
+                "type": "info",
+                "language": "tr",
+                "duration": round(info.duration, 2)
+            }) + "\n"
 
-        for seg in segments:
-            text = seg.text.strip()
-            if not text:
-                continue
+            all_words = []
+            
+            for seg in segments:
+                text = seg.text.strip()
+                if not text:
+                    continue
 
-            seg_words = []
-            if word_timestamps and seg.words:
-                seg_words = [
-                    {"word": w.word.strip(), "start": round(w.start, 3),
-                     "end": round(w.end, 3), "prob": round(w.probability, 3)}
-                    for w in seg.words
-                ]
-                all_words.extend(seg_words)
+                seg_words = []
+                if word_timestamps and seg.words:
+                    seg_words = [
+                        {"word": w.word.strip(), "start": round(w.start, 3),
+                         "end": round(w.end, 3), "prob": round(w.probability, 3)}
+                        for w in seg.words
+                    ]
+                    all_words.extend(seg_words)
 
-            if len(text) > max_line_chars:
-                for chunk in split_long_segment(seg.start, seg.end, text, max_line_chars):
-                    result_segments.append(chunk)
-            else:
-                seg_data = {"start": round(seg.start, 3), "end": round(seg.end, 3), "text": text}
-                if seg_words:
-                    seg_data["words"] = seg_words
-                result_segments.append(seg_data)
+                # Segment uzunsa böl, değilse doğrudan gönder
+                if len(text) > max_line_chars:
+                    chunks = split_long_segment(seg.start, seg.end, text, max_line_chars)
+                    for chunk in chunks:
+                        yield json.dumps({
+                            "type": "segment",
+                            "segment": chunk
+                        }) + "\n"
+                else:
+                    seg_data = {"start": round(seg.start, 3), "end": round(seg.end, 3), "text": text}
+                    if seg_words:
+                        seg_data["words"] = seg_words
+                    yield json.dumps({
+                        "type": "segment",
+                        "segment": seg_data
+                    }) + "\n"
 
-        silence_ranges = detect_silence_ranges(all_words)
+            # En son sessizlik analizini tamamlayıp bitir
+            silence_ranges = detect_silence_ranges(all_words)
+            yield json.dumps({
+                "type": "done",
+                "silence_ranges": silence_ranges,
+                "words": all_words if word_timestamps else []
+            }) + "\n"
 
-        return jsonify({
-            "language": "tr",
-            "duration": round(info.duration, 2),
-            "segments": result_segments,
-            "words":    all_words,
-            "silence_ranges": silence_ranges
-        })
+        return app.response_class(generate(), mimetype="application/x-ndjson")
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
