@@ -1149,7 +1149,15 @@ async function initPanel() {
 
   // Model yüklenene kadar bekle (large-v3 ~15sn)
   log('Model yükleniyor, lütfen bekle...');
-  var ok = await waitForServer(30000);
+  var ok = await waitForServer(25000);
+
+  if (!ok) {
+    // İlk deneme yanıt vermedi (örn. yeni venv'in antivirüs ilk-çalıştırma taraması) — bir kez daha dene
+    log('Server henüz yanıt vermedi, yeniden deneniyor...');
+    startWhisperServer();
+    ok = await waitForServer(35000);
+  }
+
   if (ok) {
     setDot('ok');
     toast('Whisper server hazır', 'ok');
@@ -1157,7 +1165,7 @@ async function initPanel() {
   } else {
     setDot('err');
     toast('Server başlatılamadı — manuel başlat', 'err');
-    log('Server zaman aşımı. start-server.bat ile manuel başlat.');
+    log('Server zaman aşımı. whisper-server klasöründe "venv\\Scripts\\python.exe whisper_server.py" ile manuel başlat.');
   }
 }
 
