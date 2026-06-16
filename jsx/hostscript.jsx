@@ -326,7 +326,14 @@ function findAudioPreset() {
       var eprs = subs[si].getFiles("*.epr");
       for (var ei = 0; ei < eprs.length; ei++) {
         var name = eprs[ei].name.toLowerCase();
-        if (name.indexOf("audio") !== -1 || name.indexOf("aac") !== -1 || name.indexOf("wav") !== -1) {
+        // "Adobe Stock 4K DCI with Audio" gibi video preset'leri isminde "audio" geçtiği
+        // için yanlışlıkla seçilmesin — bunlar gerçek ses-only export değil
+        var isVideoPreset = name.indexOf("video") !== -1 || name.indexOf("stock") !== -1 ||
+                             name.indexOf("dci") !== -1 || name.indexOf("4k") !== -1 ||
+                             name.indexOf("prores") !== -1 || name.indexOf(" hd") !== -1;
+        if (isVideoPreset) continue;
+        if (name.indexOf("audio") !== -1 || name.indexOf("aac") !== -1 ||
+            name.indexOf("wav") !== -1  || name.indexOf("mp3") !== -1) {
           return eprs[ei].fsName;
         }
       }
