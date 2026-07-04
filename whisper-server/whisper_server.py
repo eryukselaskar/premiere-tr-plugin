@@ -12,10 +12,31 @@ Endpoint: http://localhost:5123
 """
 
 import os
+import sys
 import json
 import tempfile
 import subprocess
 from pathlib import Path
+
+# Windows'ta ctranslate2'nin CUDA DLL'lerini (cublas64_12.dll vb.) bulabilmesi için site-packages/nvidia yollarını DLL arama yoluna ekle
+if sys.platform == "win32":
+    dll_paths = []
+    for path in sys.path:
+        if "site-packages" in path.lower():
+            nvidia_dir = os.path.join(path, "nvidia")
+            if os.path.exists(nvidia_dir):
+                for root, dirs, files in os.walk(nvidia_dir):
+                    if any(f.lower().endswith(".dll") for f in files):
+                        try:
+                            os.add_dll_directory(root)
+                            dll_paths.append(root)
+                            print(f"[Whisper DLL] Kaydedildi (add_dll_directory): {root}")
+                        except Exception as e:
+                            print(f"[Whisper DLL] Hata ({root}): {e}")
+    if dll_paths:
+        os.environ["PATH"] = ";".join(dll_paths) + ";" + os.environ.get("PATH", "")
+        print("[Whisper DLL] System PATH güncellendi.")
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
@@ -73,7 +94,8 @@ def health():
         "status": "ok",
         "model": MODEL_SIZE,
         "device": DEVICE,
-        "whisper_available": WHISPER_AVAILABLE
+        "whisper_available": WHISPER_AVAILABLE,
+        "model_loaded": model is not None
     })
 
 
@@ -170,25 +192,27 @@ def transcribe():
         os.unlink(tmp_path)
 
 
-@app.route("/transcribe/path", methods=["POST"])
+@app.route("/transcribe/path", methods=["GET", "POST"])
 def transcribe_path():
     """
     Disk üzerindeki dosya yoluyla çalışır (büyük dosyalar için)
     ve transkripti gerçek zamanlı (stream) olarak ndjson formatında döner.
-    
-    Body: JSON { "path": "/tmp/audio.wav", "word_timestamps": true }
     """
     if not load_model():
         return jsonify({"error": "faster-whisper kurulu değil."}), 500
 
-    data = request.json or {}
+    if request.method == "POST":
+        data = request.json or {}
+    else:
+        data = request.args or {}
+
     file_path = data.get("path")
 
     if not file_path or not os.path.exists(file_path):
         return jsonify({"error": f"Dosya bulunamadı: {file_path}"}), 400
 
-    word_timestamps = data.get("word_timestamps", True)
-    vad_filter      = data.get("vad_filter", True)
+    word_timestamps = str(data.get("word_timestamps", "true")).lower() == "true"
+    vad_filter      = str(data.get("vad_filter", "true")).lower() == "true"
     max_line_chars  = int(data.get("max_line_chars", 42))
 
     try:
@@ -511,7 +535,9 @@ if __name__ == "__main__":
     print(" http://localhost:5123")
     print("=" * 50)
 
-    # Model önceden yükle (ilk istek beklenmesin)
-    load_model()
+    # Model önceden yükle (arka planda yükle ki Flask sunucu hemen başlasın ve panel timeout vermesin)
+    import threading
+    model_loader = threading.Thread(target=load_model, daemon=True)
+    model_loader.start()
 
     app.run(host="127.0.0.1", port=5123, debug=False)

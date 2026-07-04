@@ -14,10 +14,10 @@ Write-Host ""
 #    venv/.git/__pycache__ kopyalanmaz: venv tasinabilir degildir (kaynak Python'a mutlak
 #    yol icerir), bu makinede adim 3'te sifirdan olusturulur.
 Write-Host "[1/3] Copying extension to CEP folder..." -ForegroundColor Yellow
-if (Test-Path $ExtDir) {
-    Remove-Item $ExtDir -Recurse -Force
+if (-not (Test-Path $ExtDir)) {
+    New-Item -ItemType Directory -Path $ExtDir -Force | Out-Null
 }
-New-Item -ItemType Directory -Path $ExtDir -Force | Out-Null
+# robocopy kilitli klasörleri silmeden doğrudan üzerine yazar, bu sayede açık terminal engeli aşılır
 robocopy $scriptDir $ExtDir /E /XD ".git" "venv" "__pycache__" /NFL /NDL /NJH /NJS /NC /NS | Out-Null
 Write-Host "      Copied to: $ExtDir" -ForegroundColor Green
 
@@ -37,7 +37,9 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     Write-Host "      Python not found. Install from https://python.org" -ForegroundColor Red
 } else {
     Push-Location "$ExtDir\whisper-server"
-    python -m venv venv
+    if (-not (Test-Path "venv")) {
+        python -m venv venv
+    }
     .\venv\Scripts\python.exe -m pip install --upgrade pip --quiet
     .\venv\Scripts\python.exe -m pip install -r ..\requirements.txt --quiet
     Pop-Location

@@ -231,27 +231,52 @@ function backupSequence() {
   }
 }
 
-// ─── Sekansı SRT olarak dışa aktar ──────────────────────────────────────────
-
-function exportSRT(captionsJson, outputPath) {
+function exportTranscriptDialog(captionsJson) {
   try {
     var captions = JSON.parse(captionsJson);
-    var srtContent = "";
     
-    for (var i = 0; i < captions.length; i++) {
-      var cap = captions[i];
-      srtContent += (i + 1) + "\n";
-      srtContent += formatSRTTime(cap.start) + " --> " + formatSRTTime(cap.end) + "\n";
-      srtContent += cap.text + "\n\n";
+    // Default file name based on active sequence name
+    var seqName = "transcript";
+    if (app.project && app.project.activeSequence) {
+      seqName = app.project.activeSequence.name.replace(/[\/\\:\*\?"<>\|]/g, "_");
     }
-
-    var srtFile = new File(outputPath || (Folder.desktop.fsName + "/transcript.srt"));
-    srtFile.open("w");
-    srtFile.encoding = "UTF-8";
-    srtFile.write(srtContent);
-    srtFile.close();
-
-    return JSON.stringify({ success: true, path: srtFile.fsName });
+    
+    var filter = "SubRip Subtitle:*.srt;Plain Text:*.txt;All files:*.*";
+    if (Folder.fs === "macintosh") {
+      filter = "";
+    }
+    
+    var defaultFile = new File(Folder.desktop.fsName + "/" + seqName + ".srt");
+    var saveFile = defaultFile.saveDlg("Transkripti Kaydet", filter);
+    
+    if (!saveFile) {
+      return JSON.stringify({ cancelled: true });
+    }
+    
+    var isTxt = saveFile.name.toLowerCase().slice(-4) === ".txt";
+    var content = "";
+    
+    if (isTxt) {
+      // Plain text format
+      for (var i = 0; i < captions.length; i++) {
+        content += captions[i].text + "\n";
+      }
+    } else {
+      // SRT format
+      for (var i = 0; i < captions.length; i++) {
+        var cap = captions[i];
+        content += (i + 1) + "\n";
+        content += formatSRTTime(cap.start) + " --> " + formatSRTTime(cap.end) + "\n";
+        content += cap.text + "\n\n";
+      }
+    }
+    
+    saveFile.open("w");
+    saveFile.encoding = "UTF-8";
+    saveFile.write(content);
+    saveFile.close();
+    
+    return JSON.stringify({ success: true, path: saveFile.fsName });
   } catch (e) {
     return JSON.stringify({ error: e.message });
   }

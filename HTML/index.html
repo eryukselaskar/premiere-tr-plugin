@@ -290,7 +290,7 @@ body {
       <div class="progress-wrap" id="progressWrap" style="display:none">
         <div class="progress-bar" id="progressBar"></div>
       </div>
-      <div class="log-box" id="logBox" style="display:none"></div>
+      <div class="log-box" id="logBox" style="display:block; max-height:120px; margin-top:10px;"></div>
     </div>
 
     <div id="transcriptEmpty" class="empty">
@@ -306,7 +306,7 @@ body {
       </div>
       <div class="row" style="gap:8px">
         <button class="btn btn-surface" onclick="editAll()" style="flex:1">Düzenle</button>
-        <button class="btn btn-surface" onclick="exportSRT()" style="flex:1">SRT İndir</button>
+        <button class="btn btn-surface" onclick="exportTranscript()" style="flex:1">Dışa Aktar</button>
         <button class="btn btn-danger"  onclick="clearTranscript()" style="flex-shrink:0">✕</button>
       </div>
     </div>
@@ -388,8 +388,9 @@ body {
         <span class="label">Sunucu Adresi</span>
         <input class="input" id="serverUrl" value="http://127.0.0.1:5123">
       </div>
-      <div class="row" style="margin-bottom:10px">
+      <div class="row" style="margin-bottom:10px; gap:8px;">
         <button class="btn btn-surface" onclick="checkServer()" style="flex:1; justify-content:center">Bağlantıyı Test Et</button>
+        <button class="btn btn-primary" onclick="launchServerCMD()" style="flex:1; justify-content:center">Sunucuyu Başlat (CMD)</button>
       </div>
       <div id="serverStatus" style="font-size:12px; color:var(--muted)">—</div>
     </div>
@@ -550,10 +551,14 @@ async function startTranscript() {
     var controller = new AbortController();
     var timeoutId  = setTimeout(function() { controller.abort(); }, 600000);
 
-    var response = await fetch(serverUrl + '/transcribe/path', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ path: mediaPath, word_timestamps: true, vad_filter: useVAD, max_line_chars: maxLineChars }),
+    var queryUrl = serverUrl + '/transcribe/path' +
+      '?path=' + encodeURIComponent(mediaPath) +
+      '&word_timestamps=true' +
+      '&vad_filter=' + useVAD +
+      '&max_line_chars=' + maxLineChars;
+
+    var response = await fetch(queryUrl, {
+      method:  'GET',
       signal:  controller.signal
     });
     clearTimeout(timeoutId);
@@ -703,17 +708,18 @@ function clearTranscript() {
   document.getElementById('transcriptEmpty').style.display = 'block';
 }
 
-// ─── SRT dışa aktar ───────────────────────────────────────────────────────────
-function exportSRT() {
+// ─── Transkripti dışa aktar ───────────────────────────────────────────────────
+function exportTranscript() {
   if (!state.segments.length) { toast('Önce transkript al', 'err'); return; }
 
   var captionsJson = JSON.stringify(getCurrentSegments());
-  csInterface.evalScript('exportSRT(' + JSON.stringify(captionsJson) + ')', function(result) {
+  csInterface.evalScript('exportTranscriptDialog(' + JSON.stringify(captionsJson) + ')', function(result) {
     try {
       var r = JSON.parse(result);
-      if (r.success) toast('SRT kaydedildi: ' + r.path, 'ok');
-      else toast(r.error || 'SRT hatası', 'err');
-    } catch(e) { toast('SRT hatası', 'err'); }
+      if (r.cancelled) return;
+      if (r.success) toast('Transkript kaydedildi: ' + r.path.replace(/\\/g, '/').split('/').pop(), 'ok');
+      else toast(r.error || 'Dışa aktarma hatası', 'err');
+    } catch(e) { toast('Dışa aktarma hatası', 'err'); }
   });
 }
 
@@ -1084,27 +1090,65 @@ function toast(msg, type) {
   toastTimer = setTimeout(function() { el.className = 'toast'; }, 3000);
 }
 
-// Eklentinin gerçekte çalıştığı klasör — install.ps1 hangi yere kopyalarsa kopyalasın doğru yolu bulur
-var EXT_ROOT = '';
-try { EXT_ROOT = csInterface.getSystemPath(SystemPath.EXTENSION).replace(/\//g, '\\'); } catch(e) {}
-var SERVER_SCRIPT = EXT_ROOT + '\\whisper-server\\whisper_server.py';
-var VENV_PYTHON    = EXT_ROOT + '\\whisper-server\\venv\\Scripts\\python.exe';
+function getExtPaths() {
+  var extRoot = '';
+  try {
+    var path = require('path');
+    var htmlPath = decodeURI(window.location.pathname);
+    // Windows'ta pathname başında /C:/Users... gibi eğik çizgi olur, onu temizliyoruz
+    if (htmlPath.charAt(0) === '/' || htmlPath.charAt(0) === '\\') {
+      htmlPath = htmlPath.slice(1);
+    }
+    extRoot = path.join(path.dirname(htmlPath), '..').replace(/\//g, '\\');
+  } catch(e) {
+    try {
+      extRoot = csInterface.getSystemPath(SystemPath.EXTENSION).replace(/\//g, '\\');
+      if (extRoot.slice(-1) === '\\') {
+        extRoot = extRoot.slice(0, -1);
+      }
+    } catch(err) {}
+  }
+  return {
+    root: extRoot,
+    script: extRoot + '\\whisper-server\\whisper_server.py',
+    python: extRoot + '\\whisper-server\\venv\\Scripts\\python.exe'
+  };
+}
 
 function resolvePythonExe() {
+  var paths = getExtPaths();
   try {
     var fs = require('fs');
-    if (fs.existsSync(VENV_PYTHON)) return VENV_PYTHON;
+    if (fs.existsSync(paths.python)) return paths.python;
   } catch(e) {}
   return 'python'; // venv yoksa sistem PATH'indeki python'u kullan
 }
 
-function startWhisperServer() {
+function launchServerCMD() {
   try {
-    cep.process.createProcess(resolvePythonExe(), SERVER_SCRIPT);
-    log('Whisper server başlatılıyor...');
+    var cp = require('child_process');
+    var paths = getExtPaths();
+    var pythonExe = resolvePythonExe();
+    var pythonCmd = pythonExe === 'python' ? 'python' : '.\\venv\\Scripts\\python.exe';
+    log('Whisper server CMD penceresinde başlatılıyor...');
+    log('Yol: ' + paths.root);
+    
+    // Windows CMD'de yeni bir pencere (start) açarak venv içindeki python ile sunucuyu çalıştırıyoruz.
+    // start komutunun /D parametresi ile çalışma dizinini set ederek tırnak karmaşasından kurtuluyoruz.
+    var cmd = 'cmd.exe /c start "TR Altyazi — Whisper Sunucusu" /D "' + paths.root + '\\whisper-server" cmd.exe /k "' + pythonCmd + ' whisper_server.py"';
+    
+    cp.exec(cmd, function(err) {
+      if (err) log('CMD başlatma hatası: ' + err.message);
+    });
+    
+    toast('CMD Sunucu başlatılıyor...', 'ok');
   } catch(e) {
     log('Server başlatma hatası: ' + e.message);
   }
+}
+
+function startWhisperServer() {
+  launchServerCMD();
 }
 
 async function waitForServer(timeoutMs) {
@@ -1112,8 +1156,14 @@ async function waitForServer(timeoutMs) {
   var start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      var res = await fetch(url + '/health', { signal: AbortSignal.timeout(1000) });
-      if (res.ok) return true;
+      var controller = new AbortController();
+      var timeoutId  = setTimeout(function() { controller.abort(); }, 1000);
+      var res = await fetch(url + '/health', { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        var data = await res.json();
+        if (data.model_loaded) return true; // Sadece model tamamen yüklendiğinde true dön
+      }
     } catch(_) {}
     await new Promise(function(r) { setTimeout(r, 1500); });
   }
@@ -1129,34 +1179,45 @@ async function initPanel() {
     } catch(e) {}
   });
 
+  var serverAlive = false;
+  var modelLoaded = false;
+  var modelName = '';
+
   // Server çalışıyor mu?
   try {
+    var controller = new AbortController();
+    var timeoutId  = setTimeout(function() { controller.abort(); }, 1500);
     var res = await fetch(document.getElementById('serverUrl').value + '/health', {
-      signal: AbortSignal.timeout(1500)
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
     if (res.ok) {
       var data = await res.json();
-      setDot('ok');
+      serverAlive = true;
+      modelLoaded = !!data.model_loaded;
+      modelName = data.model;
       document.getElementById('modelBadge').textContent = data.model;
-      log('Whisper server zaten çalışıyor (' + data.model + ')');
-      return;
     }
   } catch(_) {}
 
-  // Çalışmıyorsa başlat
-  setDot('busy');
-  startWhisperServer();
-
-  // Model yüklenene kadar bekle (large-v3 ~15sn)
-  log('Model yükleniyor, lütfen bekle...');
-  var ok = await waitForServer(25000);
-
-  if (!ok) {
-    // İlk deneme yanıt vermedi (örn. yeni venv'in antivirüs ilk-çalıştırma taraması) — bir kez daha dene
-    log('Server henüz yanıt vermedi, yeniden deneniyor...');
+  if (serverAlive) {
+    if (modelLoaded) {
+      setDot('ok');
+      log('Whisper server hazır ve çalışıyor (' + modelName + ')');
+      return;
+    } else {
+      setDot('busy');
+      log('Whisper server çalışıyor ancak model henüz yüklenmedi, yükleme bekleniyor...');
+    }
+  } else {
+    // Çalışmıyorsa başlat
+    setDot('busy');
     startWhisperServer();
-    ok = await waitForServer(35000);
   }
+
+  // Model yüklenene kadar bekle (large-v3 ~15-30sn sürebilir, ilk açılışta model indirilirken uzayabilir)
+  log('Model yükleniyor veya indiriliyor, lütfen bekleyin (large-v3)...');
+  var ok = await waitForServer(60000);
 
   if (ok) {
     setDot('ok');
@@ -1164,13 +1225,17 @@ async function initPanel() {
     log('Server hazır.');
   } else {
     setDot('err');
-    toast('Server başlatılamadı — manuel başlat', 'err');
-    log('Server zaman aşımı. whisper-server klasöründe "venv\\Scripts\\python.exe whisper_server.py" ile manuel başlat.');
+    toast('Server henüz hazır değil', 'err');
+    log('Zaman aşımı. İlk çalıştırmada ~3 GB boyutundaki model arka planda indiriliyor olabilir. Lütfen açılan siyah CMD penceresini kontrol edin ve indirme bitene kadar kapatmayın. İndirme bittiğinde panel kendiliğinden hazır olacaktır.');
   }
 }
 
 window.addEventListener('load', function() {
   initPanel();
+});
+
+window.addEventListener('beforeunload', function() {
+  // CMD penceresi bağımsız çalıştığı için artık buradan durdurmaya gerek yok, kullanıcı manuel kapatacaktır.
 });
 </script>
 </body>
