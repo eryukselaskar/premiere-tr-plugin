@@ -290,7 +290,7 @@ body {
       <div class="progress-wrap" id="progressWrap" style="display:none">
         <div class="progress-bar" id="progressBar"></div>
       </div>
-      <div class="log-box" id="logBox" style="display:none"></div>
+      <div class="log-box" id="logBox" style="display:block; max-height:120px; margin-top:10px;"></div>
     </div>
 
     <div id="transcriptEmpty" class="empty">
@@ -306,7 +306,7 @@ body {
       </div>
       <div class="row" style="gap:8px">
         <button class="btn btn-surface" onclick="editAll()" style="flex:1">Düzenle</button>
-        <button class="btn btn-surface" onclick="exportSRT()" style="flex:1">SRT İndir</button>
+        <button class="btn btn-surface" onclick="exportTranscript()" style="flex:1">Dışa Aktar</button>
         <button class="btn btn-danger"  onclick="clearTranscript()" style="flex-shrink:0">✕</button>
       </div>
     </div>
@@ -355,12 +355,21 @@ body {
       </div>
     </div>
 
+    <div class="card" id="card-track-protection" style="display:none; margin-top:12px;">
+      <div class="card-title">🛡️ Kanal Koruma (İşaretli Kanallar KORUNUR)</div>
+      <div id="track-protection-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+    </div>
+
     <div id="silenceEmpty" class="empty">
       <div class="empty-icon">✂</div>
       <div>Analiz butonuna bas</div>
     </div>
 
     <div id="silenceResults" style="display:none">
+      <div class="card" style="padding: 10px; margin-bottom: 12px; background: var(--surface);">
+        <span class="label" style="margin-bottom: 8px;">🎬 Kesim Haritası (Kırmızı Alanlar Silinecek)</span>
+        <div id="silencePreviewBar" style="width: 100%; height: 26px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; position: relative; overflow: hidden;"></div>
+      </div>
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">
         <span class="label" style="margin:0">Bulunan Sessizlikler</span>
         <span class="badge badge-warn" id="silenceCount">0 adet</span>
@@ -379,8 +388,9 @@ body {
         <span class="label">Sunucu Adresi</span>
         <input class="input" id="serverUrl" value="http://127.0.0.1:5123">
       </div>
-      <div class="row" style="margin-bottom:10px">
+      <div class="row" style="margin-bottom:10px; gap:8px;">
         <button class="btn btn-surface" onclick="checkServer()" style="flex:1; justify-content:center">Bağlantıyı Test Et</button>
+        <button class="btn btn-primary" onclick="launchServerCMD()" style="flex:1; justify-content:center">Sunucuyu Başlat (CMD)</button>
       </div>
       <div id="serverStatus" style="font-size:12px; color:var(--muted)">—</div>
     </div>
@@ -474,6 +484,10 @@ function switchTab(name) {
   var isAutocut = (name === 'autocut');
   document.getElementById('btnMain').style.display    = isAutocut ? 'none' : '';
   document.getElementById('btnAnalyze').style.display = isAutocut ? '' : 'none';
+  
+  if (isAutocut) {
+    loadSequenceTracks().catch(function() {});
+  }
 }
 
 document.getElementById('srcSelect').addEventListener('change', function() {
@@ -537,10 +551,14 @@ async function startTranscript() {
     var controller = new AbortController();
     var timeoutId  = setTimeout(function() { controller.abort(); }, 600000);
 
-    var response = await fetch(serverUrl + '/transcribe/path', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ path: mediaPath, word_timestamps: true, vad_filter: useVAD, max_line_chars: maxLineChars }),
+    var queryUrl = serverUrl + '/transcribe/path' +
+      '?path=' + encodeURIComponent(mediaPath) +
+      '&word_timestamps=true' +
+      '&vad_filter=' + useVAD +
+      '&max_line_chars=' + maxLineChars;
+
+    var response = await fetch(queryUrl, {
+      method:  'GET',
       signal:  controller.signal
     });
     clearTimeout(timeoutId);
@@ -551,19 +569,58 @@ async function startTranscript() {
       throw new Error(errData.error || 'Sunucu hatası: ' + response.status);
     }
 
-    var data = await response.json();
-    log('Tamamlandı! ' + data.segments.length + ' segment, ' + Math.round(data.duration) + 's');
+    showProgress(true, 75);
+    var reader = response.body.getReader();
+    var decoder = new TextDecoder('utf-8');
+    var buffer = '';
+    
+    state.segments = [];
+    var list  = document.getElementById('transcriptList');
+    var empty = document.getElementById('transcriptEmpty');
+    var tools = document.getElementById('transcriptTools');
+    
+    list.innerHTML = '';
+    empty.style.display = 'none';
+    list.style.display  = 'flex';
+    tools.style.display = 'none';
 
-    state.segments  = data.segments;
+    while (true) {
+      var chunkObj = await reader.read();
+      if (chunkObj.done) break;
+      
+      buffer += decoder.decode(chunkObj.value, { stream: true });
+      var lines = buffer.split('\n');
+      buffer = lines.pop();
+      
+      for (var l = 0; l < lines.length; l++) {
+        var line = lines[l].trim();
+        if (!line) continue;
+        try {
+          var parsed = JSON.parse(line);
+          if (parsed.type === 'info') {
+            log('Ses süresi: ' + Math.round(parsed.duration) + 's');
+          } else if (parsed.type === 'segment') {
+            state.segments.push(parsed.segment);
+            appendSegmentToUI(parsed.segment, state.segments.length - 1);
+          } else if (parsed.type === 'done') {
+            state.silenceRanges = parsed.silence_ranges;
+            log('Deşifre tamamlandı! Toplam segment sayısı: ' + state.segments.length);
+          }
+        } catch(err) {
+          console.error("Line parse error: " + line, err);
+        }
+      }
+    }
+    
     state.mediaPath = mediaPath;
-    if (usedExport) state.appliedCuts = []; // export zaten kesik, remap gerekmez
-
-    renderTranscript(data.segments);
+    if (usedExport) state.appliedCuts = [];
+    
+    tools.style.display = 'block';
     showProgress(false);
     showLog(false);
     setDot('ok');
     setBusy(false);
-    toast('Transkript hazır — ' + data.segments.length + ' segment', 'ok');
+    toast('Transkript hazır — ' + state.segments.length + ' segment', 'ok');
 
   } catch(e) {
     log('HATA: ' + e.message);
@@ -573,6 +630,32 @@ async function startTranscript() {
     toast(e.message, 'err');
   }
 }
+
+function appendSegmentToUI(seg, index) {
+  var list  = document.getElementById('transcriptList');
+  var item = document.createElement('div');
+  item.className = 'seg-item';
+  item.innerHTML =
+    '<span class="seg-time">' + fmtTime(seg.start) + ' → ' + fmtTime(seg.end) + '</span>' +
+    '<span class="seg-text" contenteditable="false">' + esc(seg.text) + '</span>' +
+    '<button class="seg-del" onclick="deleteSeg(' + index + ')" title="Sil">×</button>';
+  
+  item.addEventListener('click', function(e) {
+    if (e.target.className === 'seg-del' || e.target.contentEditable === 'true') return;
+    document.querySelectorAll('.seg-item').forEach(function(el) {
+      el.classList.remove('active');
+    });
+    item.classList.add('active');
+    evalScript('setPlayheadPosition(' + seg.start + ')').catch(function(err) {});
+  });
+
+  list.appendChild(item);
+  
+  // Auto scroll panel body to the bottom so user can see progress
+  var body = document.querySelector('.panel-body');
+  if (body) body.scrollTop = body.scrollHeight;
+}
+
 
 // ─── Transcript render ────────────────────────────────────────────────────────
 function renderTranscript(segments) {
@@ -592,6 +675,16 @@ function renderTranscript(segments) {
       '<span class="seg-time">' + fmtTime(seg.start) + ' → ' + fmtTime(seg.end) + '</span>' +
       '<span class="seg-text" contenteditable="false">' + esc(seg.text) + '</span>' +
       '<button class="seg-del" onclick="deleteSeg(' + i + ')" title="Sil">×</button>';
+    
+    item.addEventListener('click', function(e) {
+      if (e.target.className === 'seg-del' || e.target.contentEditable === 'true') return;
+      document.querySelectorAll('.seg-item').forEach(function(el) {
+        el.classList.remove('active');
+      });
+      item.classList.add('active');
+      evalScript('setPlayheadPosition(' + seg.start + ')').catch(function(err) {});
+    });
+
     list.appendChild(item);
   });
 }
@@ -615,17 +708,18 @@ function clearTranscript() {
   document.getElementById('transcriptEmpty').style.display = 'block';
 }
 
-// ─── SRT dışa aktar ───────────────────────────────────────────────────────────
-function exportSRT() {
+// ─── Transkripti dışa aktar ───────────────────────────────────────────────────
+function exportTranscript() {
   if (!state.segments.length) { toast('Önce transkript al', 'err'); return; }
 
   var captionsJson = JSON.stringify(getCurrentSegments());
-  csInterface.evalScript('exportSRT(' + JSON.stringify(captionsJson) + ')', function(result) {
+  csInterface.evalScript('exportTranscriptDialog(' + JSON.stringify(captionsJson) + ')', function(result) {
     try {
       var r = JSON.parse(result);
-      if (r.success) toast('SRT kaydedildi: ' + r.path, 'ok');
-      else toast(r.error || 'SRT hatası', 'err');
-    } catch(e) { toast('SRT hatası', 'err'); }
+      if (r.cancelled) return;
+      if (r.success) toast('Transkript kaydedildi: ' + r.path.replace(/\\/g, '/').split('/').pop(), 'ok');
+      else toast(r.error || 'Dışa aktarma hatası', 'err');
+    } catch(e) { toast('Dışa aktarma hatası', 'err'); }
   });
 }
 
@@ -732,6 +826,7 @@ async function analyzeSilence() {
     if (!res.ok) throw new Error(data.error || 'Analiz hatası');
 
     state.silenceRanges = data.silence_ranges;
+    state.totalDuration = data.total_duration;
     renderSilence(data.silence_ranges);
     setDot('ok');
   } catch(e) {
@@ -755,6 +850,31 @@ function renderSilence(ranges) {
   empty.style.display   = 'none';
   results.style.display = 'block';
   document.getElementById('silenceCount').textContent = ranges.length + ' adet';
+
+  // Render silence preview map
+  var previewBar = document.getElementById('silencePreviewBar');
+  if (previewBar) {
+    previewBar.innerHTML = '';
+    if (state.totalDuration > 0) {
+      ranges.forEach(function(r) {
+        var silDiv = document.createElement('div');
+        silDiv.style.position = 'absolute';
+        silDiv.style.top = '0';
+        silDiv.style.bottom = '0';
+        
+        var leftPct = (r.start / state.totalDuration) * 100;
+        var widthPct = (r.duration / state.totalDuration) * 100;
+        
+        silDiv.style.left = leftPct + '%';
+        silDiv.style.width = widthPct + '%';
+        silDiv.style.background = 'var(--danger)';
+        silDiv.style.opacity = '0.75';
+        silDiv.title = 'Sessizlik: ' + r.start.toFixed(1) + 's → ' + r.end.toFixed(1) + 's (' + r.duration.toFixed(1) + 's)';
+        
+        previewBar.appendChild(silDiv);
+      });
+    }
+  }
 
   list.innerHTML = '';
   ranges.forEach(function(r) {
@@ -788,11 +908,21 @@ async function applyAutocut() {
     await new Promise(function(r) { setTimeout(r, 800); });
   }
 
+  // Korunan kanalları topla
+  var protectedTracks = { video: [], audio: [] };
+  document.querySelectorAll('.track-protect-chk').forEach(function(chk) {
+    if (chk.checked) {
+      var type = chk.getAttribute('data-type');
+      var idx  = parseInt(chk.getAttribute('data-index'));
+      protectedTracks[type].push(idx);
+    }
+  });
+
   toast('Kesimler uygulanıyor...', '');
 
   try {
     var result = await evalScript(
-      'applySilenceCuts(' + JSON.stringify(JSON.stringify(state.silenceRanges)) + ')'
+      'applySilenceCuts(' + JSON.stringify(JSON.stringify(state.silenceRanges)) + ', ' + JSON.stringify(JSON.stringify(protectedTracks)) + ')'
     );
     if (result.success) {
       state.appliedCuts = state.silenceRanges.slice();
@@ -805,6 +935,68 @@ async function applyAutocut() {
   }
 
   setBusy(false);
+}
+
+async function loadSequenceTracks() {
+  try {
+    var tracks = await evalScript('getSequenceTracks()');
+    if (tracks.error) {
+      document.getElementById('card-track-protection').style.display = 'none';
+      return;
+    }
+    
+    var container = document.getElementById('track-protection-list');
+    container.innerHTML = '';
+    
+    var hasTracks = false;
+    
+    // Video kanalları
+    if (tracks.video && tracks.video.length > 0) {
+      hasTracks = true;
+      var title = document.createElement('span');
+      title.className = 'label';
+      title.style.margin = '4px 0 2px';
+      title.textContent = 'Video Kanalları';
+      container.appendChild(title);
+      
+      tracks.video.forEach(function(t) {
+        var row = document.createElement('div');
+        row.className = 'switch-row';
+        row.style.marginBottom = '4px';
+        row.innerHTML = 
+          '<label style="font-size:12px; color:var(--text);">' + esc(t.name) + '</label>' +
+          '<label class="switch"><input type="checkbox" class="track-protect-chk" data-type="video" data-index="' + t.index + '" ' + (t.locked ? 'checked' : '') + '><span class="switch-track"></span></label>';
+        container.appendChild(row);
+      });
+    }
+    
+    // Ses kanalları
+    if (tracks.audio && tracks.audio.length > 0) {
+      hasTracks = true;
+      var title = document.createElement('span');
+      title.className = 'label';
+      title.style.margin = '10px 0 2px';
+      title.textContent = 'Ses Kanalları';
+      container.appendChild(title);
+      
+      tracks.audio.forEach(function(t) {
+        var row = document.createElement('div');
+        row.className = 'switch-row';
+        row.style.marginBottom = '4px';
+        
+        // İlk ses kanalı harici tüm ses kanallarını varsayılan olarak koru
+        var checked = t.index > 0 || t.locked ? 'checked' : '';
+        row.innerHTML = 
+          '<label style="font-size:12px; color:var(--text);">' + esc(t.name) + (t.index > 0 ? ' (Müzik vb. Koru)' : ' (Konuşma Kes)') + '</label>' +
+          '<label class="switch"><input type="checkbox" class="track-protect-chk" data-type="audio" data-index="' + t.index + '" ' + checked + '><span class="switch-track"></span></label>';
+        container.appendChild(row);
+      });
+    }
+    
+    document.getElementById('card-track-protection').style.display = hasTracks ? 'block' : 'none';
+  } catch(e) {
+    document.getElementById('card-track-protection').style.display = 'none';
+  }
 }
 
 var analyzeTimer;
@@ -898,14 +1090,152 @@ function toast(msg, type) {
   toastTimer = setTimeout(function() { el.className = 'toast'; }, 3000);
 }
 
-window.addEventListener('load', function() {
+function getExtPaths() {
+  var extRoot = '';
+  try {
+    var path = require('path');
+    var htmlPath = decodeURI(window.location.pathname);
+    // Windows'ta pathname başında /C:/Users... gibi eğik çizgi olur, onu temizliyoruz
+    if (htmlPath.charAt(0) === '/' || htmlPath.charAt(0) === '\\') {
+      htmlPath = htmlPath.slice(1);
+    }
+    extRoot = path.join(path.dirname(htmlPath), '..').replace(/\//g, '\\');
+  } catch(e) {
+    try {
+      extRoot = csInterface.getSystemPath(SystemPath.EXTENSION).replace(/\//g, '\\');
+      if (extRoot.slice(-1) === '\\') {
+        extRoot = extRoot.slice(0, -1);
+      }
+    } catch(err) {}
+  }
+  return {
+    root: extRoot,
+    script: extRoot + '\\whisper-server\\whisper_server.py',
+    python: extRoot + '\\whisper-server\\venv\\Scripts\\python.exe'
+  };
+}
+
+function resolvePythonExe() {
+  var paths = getExtPaths();
+  try {
+    var fs = require('fs');
+    if (fs.existsSync(paths.python)) return paths.python;
+  } catch(e) {}
+  return 'python'; // venv yoksa sistem PATH'indeki python'u kullan
+}
+
+function launchServerCMD() {
+  try {
+    var cp = require('child_process');
+    var paths = getExtPaths();
+    var pythonExe = resolvePythonExe();
+    var pythonCmd = pythonExe === 'python' ? 'python' : '.\\venv\\Scripts\\python.exe';
+    log('Whisper server CMD penceresinde başlatılıyor...');
+    log('Yol: ' + paths.root);
+    
+    // Windows CMD'de yeni bir pencere (start) açarak venv içindeki python ile sunucuyu çalıştırıyoruz.
+    // start komutunun /D parametresi ile çalışma dizinini set ederek tırnak karmaşasından kurtuluyoruz.
+    var cmd = 'cmd.exe /c start "TR Altyazi — Whisper Sunucusu" /D "' + paths.root + '\\whisper-server" cmd.exe /k "' + pythonCmd + ' whisper_server.py"';
+    
+    cp.exec(cmd, function(err) {
+      if (err) log('CMD başlatma hatası: ' + err.message);
+    });
+    
+    toast('CMD Sunucu başlatılıyor...', 'ok');
+  } catch(e) {
+    log('Server başlatma hatası: ' + e.message);
+  }
+}
+
+function startWhisperServer() {
+  launchServerCMD();
+}
+
+async function waitForServer(timeoutMs) {
+  var url   = document.getElementById('serverUrl').value;
+  var start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      var controller = new AbortController();
+      var timeoutId  = setTimeout(function() { controller.abort(); }, 1000);
+      var res = await fetch(url + '/health', { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        var data = await res.json();
+        if (data.model_loaded) return true; // Sadece model tamamen yüklendiğinde true dön
+      }
+    } catch(_) {}
+    await new Promise(function(r) { setTimeout(r, 1500); });
+  }
+  return false;
+}
+
+async function initPanel() {
+  // Sequence bilgisi
   csInterface.evalScript('getSequenceInfo()', function(result) {
     try {
       var info = JSON.parse(result);
       if (!info.error) document.getElementById('seqName').textContent = info.name;
     } catch(e) {}
   });
-  checkServer().catch(function() {});
+
+  var serverAlive = false;
+  var modelLoaded = false;
+  var modelName = '';
+
+  // Server çalışıyor mu?
+  try {
+    var controller = new AbortController();
+    var timeoutId  = setTimeout(function() { controller.abort(); }, 1500);
+    var res = await fetch(document.getElementById('serverUrl').value + '/health', {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      var data = await res.json();
+      serverAlive = true;
+      modelLoaded = !!data.model_loaded;
+      modelName = data.model;
+      document.getElementById('modelBadge').textContent = data.model;
+    }
+  } catch(_) {}
+
+  if (serverAlive) {
+    if (modelLoaded) {
+      setDot('ok');
+      log('Whisper server hazır ve çalışıyor (' + modelName + ')');
+      return;
+    } else {
+      setDot('busy');
+      log('Whisper server çalışıyor ancak model henüz yüklenmedi, yükleme bekleniyor...');
+    }
+  } else {
+    // Çalışmıyorsa başlat
+    setDot('busy');
+    startWhisperServer();
+  }
+
+  // Model yüklenene kadar bekle (large-v3 ~15-30sn sürebilir, ilk açılışta model indirilirken uzayabilir)
+  log('Model yükleniyor veya indiriliyor, lütfen bekleyin (large-v3)...');
+  var ok = await waitForServer(60000);
+
+  if (ok) {
+    setDot('ok');
+    toast('Whisper server hazır', 'ok');
+    log('Server hazır.');
+  } else {
+    setDot('err');
+    toast('Server henüz hazır değil', 'err');
+    log('Zaman aşımı. İlk çalıştırmada ~3 GB boyutundaki model arka planda indiriliyor olabilir. Lütfen açılan siyah CMD penceresini kontrol edin ve indirme bitene kadar kapatmayın. İndirme bittiğinde panel kendiliğinden hazır olacaktır.');
+  }
+}
+
+window.addEventListener('load', function() {
+  initPanel();
+});
+
+window.addEventListener('beforeunload', function() {
+  // CMD penceresi bağımsız çalıştığı için artık buradan durdurmaya gerek yok, kullanıcı manuel kapatacaktır.
 });
 </script>
 </body>

@@ -12,10 +12,31 @@ Endpoint: http://localhost:5123
 """
 
 import os
+import sys
 import json
 import tempfile
 import subprocess
 from pathlib import Path
+
+# Windows'ta ctranslate2'nin CUDA DLL'lerini (cublas64_12.dll vb.) bulabilmesi için site-packages/nvidia yollarını DLL arama yoluna ekle
+if sys.platform == "win32":
+    dll_paths = []
+    for path in sys.path:
+        if "site-packages" in path.lower():
+            nvidia_dir = os.path.join(path, "nvidia")
+            if os.path.exists(nvidia_dir):
+                for root, dirs, files in os.walk(nvidia_dir):
+                    if any(f.lower().endswith(".dll") for f in files):
+                        try:
+                            os.add_dll_directory(root)
+                            dll_paths.append(root)
+                            print(f"[Whisper DLL] Kaydedildi (add_dll_directory): {root}")
+                        except Exception as e:
+                            print(f"[Whisper DLL] Hata ({root}): {e}")
+    if dll_paths:
+        os.environ["PATH"] = ";".join(dll_paths) + ";" + os.environ.get("PATH", "")
+        print("[Whisper DLL] System PATH güncellendi.")
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
@@ -73,7 +94,8 @@ def health():
         "status": "ok",
         "model": MODEL_SIZE,
         "device": DEVICE,
-        "whisper_available": WHISPER_AVAILABLE
+        "whisper_available": WHISPER_AVAILABLE,
+        "model_loaded": model is not None
     })
 
 
@@ -96,6 +118,7 @@ def transcribe():
     audio_file = request.files["audio"]
     word_timestamps = request.form.get("word_timestamps", "true").lower() == "true"
     response_format = request.form.get("response_format", "json")
+    vad_filter = request.form.get("vad_filter", "true").lower() == "true"
 
     # Geçici dosyaya kaydet
     suffix = Path(audio_file.filename).suffix or ".wav"
@@ -111,7 +134,7 @@ def transcribe():
             language="tr",              # Türkçe zorla
             beam_size=BEAM_SIZE,
             word_timestamps=word_timestamps,
-            vad_filter=True,            # Sessizlikleri otomatik atla (auto-cut için önemli)
+            vad_filter=vad_filter,      # Sessizlikleri otomatik atla (auto-cut için önemli)
             vad_parameters=dict(
                 min_silence_duration_ms=300,   # 300ms sessizlik = yeni segment
                 threshold=0.4
@@ -169,24 +192,27 @@ def transcribe():
         os.unlink(tmp_path)
 
 
-@app.route("/transcribe/path", methods=["POST"])
+@app.route("/transcribe/path", methods=["GET", "POST"])
 def transcribe_path():
     """
     Disk üzerindeki dosya yoluyla çalışır (büyük dosyalar için)
-    
-    Body: JSON { "path": "/tmp/audio.wav", "word_timestamps": true }
+    ve transkripti gerçek zamanlı (stream) olarak ndjson formatında döner.
     """
     if not load_model():
         return jsonify({"error": "faster-whisper kurulu değil."}), 500
 
-    data = request.json or {}
+    if request.method == "POST":
+        data = request.json or {}
+    else:
+        data = request.args or {}
+
     file_path = data.get("path")
 
     if not file_path or not os.path.exists(file_path):
         return jsonify({"error": f"Dosya bulunamadı: {file_path}"}), 400
 
-    word_timestamps = data.get("word_timestamps", True)
-    vad_filter      = data.get("vad_filter", True)
+    word_timestamps = str(data.get("word_timestamps", "true")).lower() == "true"
+    vad_filter      = str(data.get("vad_filter", "true")).lower() == "true"
     max_line_chars  = int(data.get("max_line_chars", 42))
 
     try:
@@ -199,40 +225,56 @@ def transcribe_path():
             vad_parameters=dict(min_silence_duration_ms=300, threshold=0.4)
         )
 
-        result_segments, all_words = [], []
+        def generate():
+            # İlk başta genel sekans bilgisini gönder
+            yield json.dumps({
+                "type": "info",
+                "language": "tr",
+                "duration": round(info.duration, 2)
+            }) + "\n"
 
-        for seg in segments:
-            text = seg.text.strip()
-            if not text:
-                continue
+            all_words = []
+            
+            for seg in segments:
+                text = seg.text.strip()
+                if not text:
+                    continue
 
-            seg_words = []
-            if word_timestamps and seg.words:
-                seg_words = [
-                    {"word": w.word.strip(), "start": round(w.start, 3),
-                     "end": round(w.end, 3), "prob": round(w.probability, 3)}
-                    for w in seg.words
-                ]
-                all_words.extend(seg_words)
+                seg_words = []
+                if word_timestamps and seg.words:
+                    seg_words = [
+                        {"word": w.word.strip(), "start": round(w.start, 3),
+                         "end": round(w.end, 3), "prob": round(w.probability, 3)}
+                        for w in seg.words
+                    ]
+                    all_words.extend(seg_words)
 
-            if len(text) > max_line_chars:
-                for chunk in split_long_segment(seg.start, seg.end, text, max_line_chars):
-                    result_segments.append(chunk)
-            else:
-                seg_data = {"start": round(seg.start, 3), "end": round(seg.end, 3), "text": text}
-                if seg_words:
-                    seg_data["words"] = seg_words
-                result_segments.append(seg_data)
+                # Segment uzunsa böl, değilse doğrudan gönder
+                if len(text) > max_line_chars:
+                    chunks = split_long_segment(seg.start, seg.end, text, max_line_chars)
+                    for chunk in chunks:
+                        yield json.dumps({
+                            "type": "segment",
+                            "segment": chunk
+                        }) + "\n"
+                else:
+                    seg_data = {"start": round(seg.start, 3), "end": round(seg.end, 3), "text": text}
+                    if seg_words:
+                        seg_data["words"] = seg_words
+                    yield json.dumps({
+                        "type": "segment",
+                        "segment": seg_data
+                    }) + "\n"
 
-        silence_ranges = detect_silence_ranges(all_words)
+            # En son sessizlik analizini tamamlayıp bitir
+            silence_ranges = detect_silence_ranges(all_words)
+            yield json.dumps({
+                "type": "done",
+                "silence_ranges": silence_ranges,
+                "words": all_words if word_timestamps else []
+            }) + "\n"
 
-        return jsonify({
-            "language": "tr",
-            "duration": round(info.duration, 2),
-            "segments": result_segments,
-            "words":    all_words,
-            "silence_ranges": silence_ranges
-        })
+        return app.response_class(generate(), mimetype="application/x-ndjson")
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -493,7 +535,9 @@ if __name__ == "__main__":
     print(" http://localhost:5123")
     print("=" * 50)
 
-    # Model önceden yükle (ilk istek beklenmesin)
-    load_model()
+    # Model önceden yükle (arka planda yükle ki Flask sunucu hemen başlasın ve panel timeout vermesin)
+    import threading
+    model_loader = threading.Thread(target=load_model, daemon=True)
+    model_loader.start()
 
     app.run(host="127.0.0.1", port=5123, debug=False)

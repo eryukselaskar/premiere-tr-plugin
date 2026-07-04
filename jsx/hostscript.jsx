@@ -72,15 +72,43 @@ function secondsToQETimecode(seconds, timebase) {
 }
 
 // rangesJson: [ {start, end, duration}, ... ] — server tarafından hesaplanmış
-function applySilenceCuts(rangesJson) {
+// protectedTracksJson: { video: [index, ...], audio: [index, ...] } — korunacak (kesilmeyecek) kanallar
+function applySilenceCuts(rangesJson, protectedTracksJson) {
+  var originalVideoLocks = [];
+  var originalAudioLocks = [];
+  var seq = app.project.activeSequence;
+  if (!seq) return JSON.stringify({ error: "Aktif sequence yok." });
+
   try {
+    var protectedTracks = protectedTracksJson ? JSON.parse(protectedTracksJson) : { video: [], audio: [] };
+    
+    // Geçici kilitleme işlemi (korunan kanallar kilitlenir, böylece kesilmezler)
+    for (var v = 0; v < seq.videoTracks.numTracks; v++) {
+      originalVideoLocks.push(seq.videoTracks[v].locked);
+      for (var vp = 0; vp < protectedTracks.video.length; vp++) {
+        if (protectedTracks.video[vp] === v) {
+          seq.videoTracks[v].locked = true;
+        }
+      }
+    }
+    for (var a = 0; a < seq.audioTracks.numTracks; a++) {
+      originalAudioLocks.push(seq.audioTracks[a].locked);
+      for (var ap = 0; ap < protectedTracks.audio.length; ap++) {
+        if (protectedTracks.audio[ap] === a) {
+          seq.audioTracks[a].locked = true;
+        }
+      }
+    }
+
     app.enableQE();
-    var seq   = app.project.activeSequence;
     var qeSeq = qe.project.getActiveSequence();
-    if (!seq || !qeSeq) return JSON.stringify({ error: "Aktif sequence yok." });
+    if (!qeSeq) throw new Error("QE sekans yüklenemedi.");
 
     var ranges = JSON.parse(rangesJson);
-    if (!ranges.length) return JSON.stringify({ success: true, cutsApplied: 0 });
+    if (!ranges.length) {
+      restoreLocks(seq, originalVideoLocks, originalAudioLocks);
+      return JSON.stringify({ success: true, cutsApplied: 0 });
+    }
 
     var TICKS = 254016000000;
     var cutCount = 0;
@@ -97,9 +125,10 @@ function applySilenceCuts(rangesJson) {
       var rStartTicks = Math.round(r.start * TICKS);
       var rEndTicks   = Math.round(r.end   * TICKS);
 
-      // Video track'ler — ripple + linked items
-      for (var v = 0; v < seq.videoTracks.numTracks; v++) {
-        var vt = seq.videoTracks[v];
+      // Video track'ler — kilitli olmayanları sil (ripple + linked)
+      for (var v2 = 0; v2 < seq.videoTracks.numTracks; v2++) {
+        var vt = seq.videoTracks[v2];
+        if (vt.locked) continue; // Korumalı / kilitli kanalları atla
         for (var vc = vt.clips.numItems - 1; vc >= 0; vc--) {
           var vclip = vt.clips[vc];
           var cs = parseInt(vclip.start.ticks);
@@ -110,9 +139,10 @@ function applySilenceCuts(rangesJson) {
         }
       }
 
-      // Unlinked audio track'ler
-      for (var a = 0; a < seq.audioTracks.numTracks; a++) {
-        var at = seq.audioTracks[a];
+      // Unlinked audio track'ler — kilitli olmayanları sil
+      for (var a2 = 0; a2 < seq.audioTracks.numTracks; a2++) {
+        var at = seq.audioTracks[a2];
+        if (at.locked) continue; // Korumalı / kilitli kanalları atla
         for (var ac = at.clips.numItems - 1; ac >= 0; ac--) {
           var aclip = at.clips[ac];
           var as2 = parseInt(aclip.start.ticks);
@@ -126,8 +156,56 @@ function applySilenceCuts(rangesJson) {
       cutCount++;
     }
 
+    restoreLocks(seq, originalVideoLocks, originalAudioLocks);
     return JSON.stringify({ success: true, cutsApplied: cutCount });
   } catch(e) {
+    restoreLocks(seq, originalVideoLocks, originalAudioLocks);
+    return JSON.stringify({ error: e.message });
+  }
+}
+
+function restoreLocks(seq, originalVideoLocks, originalAudioLocks) {
+  if (!seq) return;
+  for (var v = 0; v < seq.videoTracks.numTracks; v++) {
+    if (v < originalVideoLocks.length) {
+      seq.videoTracks[v].locked = originalVideoLocks[v];
+    }
+  }
+  for (var a = 0; a < seq.audioTracks.numTracks; a++) {
+    if (a < originalAudioLocks.length) {
+      seq.audioTracks[a].locked = originalAudioLocks[a];
+    }
+  }
+}
+
+function getSequenceTracks() {
+  try {
+    var seq = app.project.activeSequence;
+    if (!seq) return JSON.stringify({ error: "Aktif sequence yok." });
+
+    var videoTracks = [];
+    for (var v = 0; v < seq.videoTracks.numTracks; v++) {
+      videoTracks.push({
+        index: v,
+        name: seq.videoTracks[v].name || ("Video " + (v + 1)),
+        locked: seq.videoTracks[v].locked
+      });
+    }
+
+    var audioTracks = [];
+    for (var a = 0; a < seq.audioTracks.numTracks; a++) {
+      audioTracks.push({
+        index: a,
+        name: seq.audioTracks[a].name || ("Audio " + (a + 1)),
+        locked: seq.audioTracks[a].locked
+      });
+    }
+
+    return JSON.stringify({
+      video: videoTracks,
+      audio: audioTracks
+    });
+  } catch (e) {
     return JSON.stringify({ error: e.message });
   }
 }
@@ -153,27 +231,52 @@ function backupSequence() {
   }
 }
 
-// ─── Sekansı SRT olarak dışa aktar ──────────────────────────────────────────
-
-function exportSRT(captionsJson, outputPath) {
+function exportTranscriptDialog(captionsJson) {
   try {
     var captions = JSON.parse(captionsJson);
-    var srtContent = "";
     
-    for (var i = 0; i < captions.length; i++) {
-      var cap = captions[i];
-      srtContent += (i + 1) + "\n";
-      srtContent += formatSRTTime(cap.start) + " --> " + formatSRTTime(cap.end) + "\n";
-      srtContent += cap.text + "\n\n";
+    // Default file name based on active sequence name
+    var seqName = "transcript";
+    if (app.project && app.project.activeSequence) {
+      seqName = app.project.activeSequence.name.replace(/[\/\\:\*\?"<>\|]/g, "_");
     }
-
-    var srtFile = new File(outputPath || (Folder.desktop.fsName + "/transcript.srt"));
-    srtFile.open("w");
-    srtFile.encoding = "UTF-8";
-    srtFile.write(srtContent);
-    srtFile.close();
-
-    return JSON.stringify({ success: true, path: srtFile.fsName });
+    
+    var filter = "SubRip Subtitle:*.srt;Plain Text:*.txt;All files:*.*";
+    if (Folder.fs === "macintosh") {
+      filter = "";
+    }
+    
+    var defaultFile = new File(Folder.desktop.fsName + "/" + seqName + ".srt");
+    var saveFile = defaultFile.saveDlg("Transkripti Kaydet", filter);
+    
+    if (!saveFile) {
+      return JSON.stringify({ cancelled: true });
+    }
+    
+    var isTxt = saveFile.name.toLowerCase().slice(-4) === ".txt";
+    var content = "";
+    
+    if (isTxt) {
+      // Plain text format
+      for (var i = 0; i < captions.length; i++) {
+        content += captions[i].text + "\n";
+      }
+    } else {
+      // SRT format
+      for (var i = 0; i < captions.length; i++) {
+        var cap = captions[i];
+        content += (i + 1) + "\n";
+        content += formatSRTTime(cap.start) + " --> " + formatSRTTime(cap.end) + "\n";
+        content += cap.text + "\n\n";
+      }
+    }
+    
+    saveFile.open("w");
+    saveFile.encoding = "UTF-8";
+    saveFile.write(content);
+    saveFile.close();
+    
+    return JSON.stringify({ success: true, path: saveFile.fsName });
   } catch (e) {
     return JSON.stringify({ error: e.message });
   }
@@ -248,7 +351,14 @@ function findAudioPreset() {
       var eprs = subs[si].getFiles("*.epr");
       for (var ei = 0; ei < eprs.length; ei++) {
         var name = eprs[ei].name.toLowerCase();
-        if (name.indexOf("audio") !== -1 || name.indexOf("aac") !== -1 || name.indexOf("wav") !== -1) {
+        // "Adobe Stock 4K DCI with Audio" gibi video preset'leri isminde "audio" geçtiği
+        // için yanlışlıkla seçilmesin — bunlar gerçek ses-only export değil
+        var isVideoPreset = name.indexOf("video") !== -1 || name.indexOf("stock") !== -1 ||
+                             name.indexOf("dci") !== -1 || name.indexOf("4k") !== -1 ||
+                             name.indexOf("prores") !== -1 || name.indexOf(" hd") !== -1;
+        if (isVideoPreset) continue;
+        if (name.indexOf("audio") !== -1 || name.indexOf("aac") !== -1 ||
+            name.indexOf("wav") !== -1  || name.indexOf("mp3") !== -1) {
           return eprs[ei].fsName;
         }
       }
@@ -307,12 +417,12 @@ function getSequenceInfo() {
 
     return JSON.stringify({
       name: seq.name,
-      duration: ticksToSeconds(seq.end, seq.timebase),
+      duration: ticksToSeconds(seq.end),
       frameRate: seq.timebase,
       videoTracks: seq.videoTracks.numTracks,
       audioTracks: seq.audioTracks.numTracks,
-      inPoint: ticksToSeconds(inPoint, seq.timebase),
-      outPoint: ticksToSeconds(outPoint, seq.timebase),
+      inPoint: ticksToSeconds(inPoint),
+      outPoint: ticksToSeconds(outPoint),
       projectPath: app.project.path
     });
   } catch (e) {
@@ -320,15 +430,27 @@ function getSequenceInfo() {
   }
 }
 
-// ─── Yardımcı: Zaman dönüşümleri ────────────────────────────────────────────
+// ─── Playhead Zamanlama Ayarı ────────────────────────────────────────────────
 
-function secondsToTicks(seconds, timebase) {
-  // Premiere tick = 1/254016000000 saniye
-  var TICKS_PER_SECOND = 254016000000;
-  return Math.round(seconds * TICKS_PER_SECOND);
+function setPlayheadPosition(seconds) {
+  try {
+    var seq = app.project.activeSequence;
+    if (!seq) return JSON.stringify({ error: "Aktif sequence yok." });
+    
+    var TICKS_PER_SECOND = 254016000000;
+    var ticks = Math.round(seconds * TICKS_PER_SECOND);
+    seq.setPlayerPosition(ticks.toString());
+    return JSON.stringify({ success: true });
+  } catch(e) {
+    return JSON.stringify({ error: e.message });
+  }
 }
 
-function ticksToSeconds(ticks, timebase) {
+
+// ─── Yardımcı: Zaman dönüşümleri ────────────────────────────────────────────
+
+function ticksToSeconds(ticks) {
+  // Premiere tick = 1/254016000000 saniye
   var TICKS_PER_SECOND = 254016000000;
   return ticks / TICKS_PER_SECOND;
 }
